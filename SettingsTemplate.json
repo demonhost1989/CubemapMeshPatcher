@@ -9,7 +9,7 @@
     "Environment": "textures\\cubemaps\\QuickSkyDark_e.dds",   // example_e.dds  (cubemap)
     "Greyscale environment": "",                               // example_m.dds  (seldom used)
     "Subsurface tint": "",                                     // example_s.dds  (seldom used)
-    "Backlight": "",                                           // example_b.dds  (never seen used)
+    "Backlight": ""                                            // example_b.dds  (never seen used)
   },
 
   "Shader": { // Shaders to apply // Example Settings taken from sentinel iron helmet

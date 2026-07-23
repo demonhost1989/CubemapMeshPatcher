@@ -1,0 +1,42 @@
+{
+  "PresetName": "Bosmer",
+
+  "Textures": { // Textures to apply
+    "Diffuse": "", // test.nif
+    "Normal": "", // test_n.nif
+    "Opacity": "", // test_?.nif
+    "Roughness": "", // test_?.nif
+    "Metal": "textures\\cubemaps\\ShinyBright_e.dds", // test_e.nif   (cubemap): null,
+    "AO": "", // test_?.nif
+    "Height": "", // test_?.nif
+    "Emissive": "",
+    "Transmissive": "",
+    "ID": ""
+  },
+
+  "Shader": { // Shaders to apply
+    "Glossiness": 40.00,
+    "SpecularStrength": 0.8,
+    "LightingEffect1": 0.30,
+    "LightingEffect2": 2.00,
+    "EnvironmentScale": 0.5
+  },
+
+  "Flags1": // Shaders to apply
+  [
+    "Specular",
+    "Skinned",
+    "Environment_Mapping",
+    "Recieve_Shadows",
+    "Cast_Shadows",
+    "Own_Emit",
+    "Remappable_Textures",
+    "Zbuffer_Test"
+  ],
+
+  "Flags2": // Shaders to apply
+  [
+    "ZBuffer_Write",
+    "EnvMap_Light_Fade"
+  ]
+}

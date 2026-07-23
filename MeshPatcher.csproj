@@ -13,4 +13,10 @@
 		<PackageReference Include="niflysharp" Version="2.0.4" />
 	</ItemGroup>
 
+	<ItemGroup>
+		<None Include="Presets\**\*.json">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+
 </Project>

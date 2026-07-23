@@ -8,8 +8,13 @@ namespace MeshPatcherProject
         readonly TextBox _inputBox = new() { Left = 120, Width = 400 };
         readonly TextBox _settingsBox = new() { Left = 120, Width = 400 };
         readonly TextBox _outputBox = new() { Left = 120, Width = 400 };
+        readonly CheckBox _automaticModeBox = new() { Text = "Automatic mode (assign presets by folder/file name)", Left = 120, AutoSize = true };
         readonly CheckBox _dryRunBox = new() { Text = "Dry run (preview only, don't write files)", Left = 120, AutoSize = true, Checked = true };
+        readonly CheckBox _envMapOnlyBox = new() { Text = "Only patch Environment Map shaders", Left = 120, AutoSize = true, Checked = true };
         readonly Button _runButton = new() { Text = "Run", Left = 120, Width = 100, Height = 32 };
+        readonly Button _stopButton = new() { Text = "Stop", Left = 230, Width = 100, Height = 32, Enabled = false };
+        Button? _settingsBrowseButton;
+        CancellationTokenSource? _cts;
         readonly TextBox _logBox = new()
         {
             Left = 12,
@@ -25,27 +30,43 @@ namespace MeshPatcherProject
         {
             Text = "Mesh Patcher";
             Width = 640;
-            Height = 480;
+            Height = 560;
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
 
             AddRow("Input folder:", _inputBox, 20, () => BrowseFolder(_inputBox));
-            AddRow("Settings.json:", _settingsBox, 55, () => BrowseFile(_settingsBox));
+            _settingsBrowseButton = AddRow("Settings.json:", _settingsBox, 55, () => BrowseFile(_settingsBox));
             AddRow("Output folder:", _outputBox, 90, () => BrowseFolder(_outputBox));
 
-            _dryRunBox.Top = 130;
+            _automaticModeBox.Top = 128;
+            _automaticModeBox.CheckedChanged += (s, e) =>
+            {
+                var automatic = _automaticModeBox.Checked;
+                _settingsBox.Enabled = !automatic;
+                _settingsBrowseButton!.Enabled = !automatic;
+            };
+            Controls.Add(_automaticModeBox);
+
+            _envMapOnlyBox.Top = 151;
+            Controls.Add(_envMapOnlyBox);
+
+            _dryRunBox.Top = 174;
             Controls.Add(_dryRunBox);
 
-            _runButton.Top = 165;
+            _runButton.Top = 205;
             _runButton.Click += RunButton_Click;
             Controls.Add(_runButton);
 
-            _logBox.Top = 210;
+            _stopButton.Top = 205;
+            _stopButton.Click += StopButton_Click;
+            Controls.Add(_stopButton);
+
+            _logBox.Top = 245;
             Controls.Add(_logBox);
         }
 
-        void AddRow(string labelText, TextBox box, int top, Action browseAction)
+        Button AddRow(string labelText, TextBox box, int top, Action browseAction)
         {
             var label = new Label { Text = labelText, Left = 12, Top = top + 3, Width = 100 };
             box.Top = top;
@@ -54,6 +75,7 @@ namespace MeshPatcherProject
             Controls.Add(label);
             Controls.Add(box);
             Controls.Add(browse);
+            return browse;
         }
 
         void BrowseFolder(TextBox target)
@@ -91,13 +113,15 @@ namespace MeshPatcherProject
             var settingsPath = _settingsBox.Text.Trim();
             var output = _outputBox.Text.Trim();
             var dryRun = _dryRunBox.Checked;
+            var environmentMapOnly = _envMapOnlyBox.Checked;
+            var automaticMode = _automaticModeBox.Checked;
 
             if (string.IsNullOrEmpty(input) || !Directory.Exists(input))
             {
                 MessageBox.Show(this, "Please choose a valid input folder.", "Mesh Patcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-            if (string.IsNullOrEmpty(settingsPath) || !File.Exists(settingsPath))
+            if (!automaticMode && (string.IsNullOrEmpty(settingsPath) || !File.Exists(settingsPath)))
             {
                 MessageBox.Show(this, "Please choose a valid Settings.json file.", "Mesh Patcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -111,12 +135,16 @@ namespace MeshPatcherProject
             _logBox.Clear();
             _runButton.Enabled = false;
             _runButton.Text = "Running...";
+            _stopButton.Enabled = true;
+            _stopButton.Text = "Stop";
+
+            _cts = new CancellationTokenSource();
 
             try
             {
                 // Run on a background thread so the UI (and the log box updating live) stays responsive.
                 await Task.Run(() =>
-                    MeshPatcherLogic.Run(input, settingsPath, output, dryRun, Log));
+                    MeshPatcherLogic.Run(input, settingsPath, output, dryRun, environmentMapOnly, automaticMode, _cts.Token, Log));
             }
             catch (Exception ex)
             {
@@ -127,7 +155,17 @@ namespace MeshPatcherProject
             {
                 _runButton.Enabled = true;
                 _runButton.Text = "Run";
+                _stopButton.Enabled = false;
+                _cts?.Dispose();
+                _cts = null;
             }
+        }
+
+        void StopButton_Click(object? sender, EventArgs e)
+        {
+            _cts?.Cancel();
+            _stopButton.Enabled = false;
+            _stopButton.Text = "Stopping...";
         }
     }
 }

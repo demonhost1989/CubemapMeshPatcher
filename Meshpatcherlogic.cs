@@ -28,21 +28,55 @@ namespace MeshPatcherProject
         }
 
         public static RunResult Run(string inputFolder, string settingsPath, string outputFolder,
-            bool dryRun, Action<string> log)
+            bool dryRun, bool environmentMapOnly, bool automaticMode, CancellationToken cancellationToken, Action<string> log)
         {
             var result = new RunResult();
 
-            var settings = Settings.LoadFromFile(settingsPath);
-            log($"Loaded preset '{settings.PresetName}' from {settingsPath}");
+            Settings? manualSettings = null;
+            Dictionary<string, Settings>? presets = null;
+            Settings? defaultPreset = null;
+
+            if (automaticMode)
+            {
+                var presetsFolder = Path.Combine(AppContext.BaseDirectory, "Presets");
+                presets = LoadPresets(presetsFolder, log);
+
+                if (!presets.TryGetValue("default", out defaultPreset))
+                    throw new InvalidOperationException(
+                        $"Automatic mode needs a fallback preset at '{Path.Combine(presetsFolder, "default.json")}' " +
+                        "for files/folders that don't match any other preset keyword, but it wasn't found.");
+
+                log($"Automatic mode: loaded {presets.Count} preset(s) from {presetsFolder}");
+            }
+            else
+            {
+                manualSettings = Settings.LoadFromFile(settingsPath);
+                log($"Loaded preset '{manualSettings.PresetName}' from {settingsPath}");
+            }
+
             log($"Input:  {inputFolder}");
             log($"Output: {outputFolder}");
+            log($"Mode:   {(environmentMapOnly ? "Environment Map shapes only" : "All BSLightingShaderProperty shapes")}");
 
             var nifFiles = Directory.EnumerateFiles(inputFolder, "*.nif", SearchOption.AllDirectories);
 
+            bool wasStopped = false;
+
             foreach (var nifPath in nifFiles)
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    wasStopped = true;
+                    break;
+                }
+
                 var relativePath = Path.GetRelativePath(inputFolder, nifPath);
                 var outputPath = Path.Combine(outputFolder, relativePath);
+
+                string? matchedKeyword = null;
+                var settingsForFile = automaticMode
+                    ? ResolvePresetForFile(relativePath, presets!, defaultPreset!, log, out matchedKeyword)
+                    : manualSettings!;
 
                 var nif = new NifFile();
                 var loadResult = nif.Load(nifPath);
@@ -65,11 +99,12 @@ namespace MeshPatcherProject
                         continue;
 
                     // Only touch shapes actually set up for environment mapping - everything else
-                    // (Default, Glow_Shader, Parallax, Skin_Tint, etc.) is left completely alone.
-                    if (!IsEnvironmentMapShader(lsp))
+                    // (Default, Glow_Shader, Parallax, Skin_Tint, etc.) is left completely alone,
+                    // unless the "Only patch Environment Map shaders" option is turned off.
+                    if (environmentMapOnly && !IsEnvironmentMapShader(lsp))
                         continue;
 
-                    ApplySettings(nif, lsp, settings, log);
+                    ApplySettings(nif, lsp, settingsForFile, log);
                     shapesPatchedInFile++;
                 }
 
@@ -78,7 +113,8 @@ namespace MeshPatcherProject
 
                 if (shapesPatchedInFile > 0)
                 {
-                    log($"  [patch] {relativePath} ({shapesPatchedInFile} shape(s))");
+                    var presetTag = automaticMode ? $" [preset: {matchedKeyword ?? "default"}]" : "";
+                    log($"  [patch] {relativePath}{presetTag} ({shapesPatchedInFile} shape(s))");
                     result.PatchedFiles++;
                     result.PatchedShapes += shapesPatchedInFile;
 
@@ -106,11 +142,108 @@ namespace MeshPatcherProject
                 }
             }
 
-            log(dryRun
-                ? $"Dry run complete: would patch {result.PatchedShapes} shape(s) across {result.PatchedFiles} file(s), and copy {result.CopiedFiles} unchanged file(s)."
-                : $"Done: patched {result.PatchedShapes} shape(s) across {result.PatchedFiles} file(s), copied {result.CopiedFiles} unchanged file(s).");
+            if (wasStopped)
+            {
+                log($"Stopped by user: patched {result.PatchedShapes} shape(s) across {result.PatchedFiles} file(s), " +
+                    $"copied {result.CopiedFiles} unchanged file(s) before stopping.");
+            }
+            else
+            {
+                log(dryRun
+                    ? $"Dry run complete: would patch {result.PatchedShapes} shape(s) across {result.PatchedFiles} file(s), and copy {result.CopiedFiles} unchanged file(s)."
+                    : $"Done: patched {result.PatchedShapes} shape(s) across {result.PatchedFiles} file(s), copied {result.CopiedFiles} unchanged file(s).");
+            }
 
             return result;
+        }
+
+        // Automatic mode: one JSON preset per file in Presets/, named after its keyword
+        // (e.g. Presets/ironarmor.json -> keyword "ironarmor"). Presets/default.json is
+        // mandatory and is used for anything that doesn't match another preset's keyword.
+        static Dictionary<string, Settings> LoadPresets(string presetsFolder, Action<string> log)
+        {
+            if (!Directory.Exists(presetsFolder))
+                throw new InvalidOperationException(
+                    $"Automatic mode needs a Presets folder at '{presetsFolder}' containing one .json file per " +
+                    "preset (plus a mandatory default.json), but that folder doesn't exist.");
+
+            var presets = new Dictionary<string, Settings>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var file in Directory.EnumerateFiles(presetsFolder, "*.json"))
+            {
+                var keyword = Path.GetFileNameWithoutExtension(file);
+                try
+                {
+                    presets[keyword] = Settings.LoadFromFile(file);
+                }
+                catch (Exception ex)
+                {
+                    log($"  [warn] Couldn't load preset '{keyword}' from {file}: {ex.Message} - skipping this preset.");
+                }
+            }
+
+            return presets;
+        }
+
+        // Matches a file's relative path (its folder names and its own file name, per the
+        // "both folder names and file name" matching rule) against preset keywords as a
+        // case-insensitive substring search. If more than one keyword matches, the longest
+        // (most specific) keyword wins; a tie between equally-long keywords is logged as a
+        // warning and resolved by picking one so the run doesn't stop over it. No match at
+        // all falls back to the mandatory "default" preset.
+        static Settings ResolvePresetForFile(string relativePath, Dictionary<string, Settings> presets,
+            Settings defaultPreset, Action<string> log, out string? matchedKeyword)
+        {
+            var candidates = GetPathSegments(relativePath).ToList();
+
+            string? bestKeyword = null;
+            var tiedKeywords = new List<string>();
+
+            foreach (var keyword in presets.Keys)
+            {
+                if (keyword.Equals("default", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!candidates.Any(c => c.Contains(keyword, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (bestKeyword is null || keyword.Length > bestKeyword.Length)
+                {
+                    bestKeyword = keyword;
+                    tiedKeywords.Clear();
+                    tiedKeywords.Add(keyword);
+                }
+                else if (keyword.Length == bestKeyword.Length)
+                {
+                    tiedKeywords.Add(keyword);
+                }
+            }
+
+            if (bestKeyword is null)
+            {
+                matchedKeyword = null;
+                return defaultPreset;
+            }
+
+            if (tiedKeywords.Count > 1)
+                log($"  [warn] {relativePath} matched multiple equally-specific presets " +
+                    $"({string.Join(", ", tiedKeywords)}) - using '{bestKeyword}'.");
+
+            matchedKeyword = bestKeyword;
+            return presets[bestKeyword];
+        }
+
+        static IEnumerable<string> GetPathSegments(string relativePath)
+        {
+            var dir = Path.GetDirectoryName(relativePath) ?? string.Empty;
+            if (!string.IsNullOrEmpty(dir))
+            {
+                foreach (var part in dir.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar },
+                             StringSplitOptions.RemoveEmptyEntries))
+                    yield return part;
+            }
+
+            yield return Path.GetFileNameWithoutExtension(relativePath);
         }
 
         // We tried guessing NiflySharp's exact property/enum name for nifxml's "Skyrim Shader Type"

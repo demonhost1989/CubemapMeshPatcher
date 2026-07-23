@@ -1,0 +1,44 @@
+{
+  // Fallback preset - automatic mode uses this for any .nif whose folder names and file name
+  // don't contain any other preset's keyword. Required: automatic mode won't run without it.
+  "PresetName": "Default",
+
+  "Textures": {
+    "Diffuse": "",
+    "Normal": "",
+    "Opacity": "",
+    "Roughness": "",
+    "Metal": "textures\\cubemaps\\quickskydark_e.dds",
+    "AO": "",
+    "Height": "",
+    "Emissive": "",
+    "Transmissive": "",
+    "ID": ""
+  },
+
+  "Shader": {
+    "Glossiness": 40.00,
+    "SpecularStrength": 1.00,
+    "LightingEffect1": 0.30,
+    "LightingEffect2": 2.00,
+    "EnvironmentScale": 0.25
+  },
+
+  "Flags1":
+  [
+    "Specular",
+    "Skinned",
+    "Environment_Mapping",
+    "Recieve_Shadows",
+    "Cast_Shadows",
+    "Own_Emit",
+    "Remappable_Textures",
+    "Zbuffer_Test"
+  ],
+
+  "Flags2":
+  [
+    "ZBuffer_Write",
+    "EnvMap_Light_Fade"
+  ]
+}
