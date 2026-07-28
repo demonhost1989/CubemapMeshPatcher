@@ -8,12 +8,11 @@
     "Normal": "",
     "Opacity": "",
     "Roughness": "",
-    "Metal": "textures\\cubemaps\\quickskydark_e.dds",
+    "Metal": "",
     "AO": "",
     "Height": "",
     "Emissive": "",
-    "Transmissive": "",
-    "ID": ""
+    "Transmissive": ""
   },
 
   "Shader": {
@@ -21,11 +20,12 @@
     "SpecularStrength": 1.00,
     "LightingEffect1": 0.30,
     "LightingEffect2": 2.00,
-    "EnvironmentScale": 0.25
+    "EnvironmentScale": 0.25,
+    "EmissiveColor": "",
+    "EmissiveMultiple": 0.00
   },
 
-  "Flags1":
-  [
+  "Flags1": [
     "Specular",
     "Skinned",
     "Environment_Mapping",
@@ -36,8 +36,7 @@
     "Zbuffer_Test"
   ],
 
-  "Flags2":
-  [
+  "Flags2": [
     "ZBuffer_Write",
     "EnvMap_Light_Fade"
   ]

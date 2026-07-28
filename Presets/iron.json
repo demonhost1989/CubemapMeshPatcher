@@ -6,23 +6,24 @@
     "Normal": "", // test_n.nif
     "Opacity": "", // test_?.nif
     "Roughness": "", // test_?.nif
-    "Metal": "textures\\cubemaps\\quickskydark_e.dds", // test_e.nif   (cubemap)
+    "Metal": "", // test_e.nif   (cubemap)
     "AO": "", // test_?.nif
     "Height": "", // test_?.nif
     "Emissive": "",
-    "Transmissive": "",
-    "ID": ""
+    "Transmissive": ""
   },
 
-  "Shader": { // Shaders to apply
+  "Shader": { // Shaders to apply // Example Settings taken from sentinel
     "Glossiness": 40.00,
     "SpecularStrength": 1.00,
     "LightingEffect1": 0.30,
     "LightingEffect2": 2.00,
-    "EnvironmentScale": 0.25
+    "EnvironmentScale": 0.25,
+    "EmissiveColor": "",
+    "EmissiveMultiple": 0.00
   },
 
-  "Flags1": // Shaders to apply
+  "Flags1": // Shaders to apply // Example Settings taken from sentinel
   [
     "Specular",
     "Skinned",
@@ -34,7 +35,7 @@
     "Zbuffer_Test"
   ],
 
-  "Flags2": // Shaders to apply
+  "Flags2": // Shaders to apply // Example Settings taken from sentinel
   [
     "ZBuffer_Write",
     "EnvMap_Light_Fade"

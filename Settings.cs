@@ -64,9 +64,6 @@ namespace MeshPatcherProject
 
         [JsonPropertyName("Transmissive")]
         public string Transmissive { get; set; } = string.Empty;
-
-        [JsonPropertyName("ID")]
-        public string ID { get; set; } = string.Empty;
     }
 
     internal class ShaderSettings
@@ -85,5 +82,11 @@ namespace MeshPatcherProject
 
         [JsonPropertyName("EnvironmentScale")]
         public float EnvironmentScale { get; set; }
+
+        [JsonPropertyName("EmissiveColor")]
+        public string EmissiveColor { get; set; } = "#000000";
+
+        [JsonPropertyName("EmissiveMultiple")]
+        public float EmissiveMultiple { get; set; }
     }
 }

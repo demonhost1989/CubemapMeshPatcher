@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System.Drawing;
+using System.Linq;
 using System.Reflection;
 using NiflySharp;
 using NiflySharp.Blocks;
@@ -305,6 +306,130 @@ namespace MeshPatcherProject
         static void SetShaderFloat(BSLightingShaderProperty lsp, string name, float value) =>
             ShaderFloatFields[name].SetValue(lsp, value);
 
+        // EmissiveMultiple and EmissiveColor haven't been confirmed against the actual NiflySharp
+        // 2.0.4 package in use (no local build/compiler here to check them, and this project's
+        // history of guessing NiflySharp member names wrong - twice, for Skyrim Shader Type - makes
+        // another blind guess a bad bet). Both are resolved via reflection at runtime instead:
+        // prefer a public settable property matching the name, fall back to a private backing
+        // field, and for the color specifically try common constructor shapes and common member
+        // names (R/G/B, X/Y/Z, Red/Green/Blue). If none of that matches what's actually there,
+        // this throws with the real type/member names found, so a fix is a one-line change instead
+        // of another round of guessing.
+        static readonly (PropertyInfo? Property, FieldInfo? Field) EmissiveMultipleAccessor =
+            FindFloatAccessor("EmissiveMultiple", "_emissiveMultiple", "_emissiveMult");
+
+        static (PropertyInfo? Property, FieldInfo? Field) FindFloatAccessor(string propertyName, params string[] backingFieldNames)
+        {
+            var property = typeof(BSLightingShaderProperty)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(p => p.PropertyType == typeof(float) && p.CanWrite &&
+                                      p.Name.Replace("_", "").Equals(propertyName, StringComparison.OrdinalIgnoreCase));
+            if (property is not null)
+                return (property, null);
+
+            foreach (var fieldName in backingFieldNames)
+            {
+                var field = typeof(BSLightingShaderProperty).GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field is not null)
+                    return (null, field);
+            }
+
+            throw new InvalidOperationException(
+                $"Couldn't find a public settable '{propertyName}' float property, or any of its guessed private " +
+                $"backing fields ({string.Join(", ", backingFieldNames)}), on BSLightingShaderProperty. Check the " +
+                "type in your IDE and update this lookup.");
+        }
+
+        static void SetEmissiveMultiple(BSLightingShaderProperty lsp, float value)
+        {
+            if (EmissiveMultipleAccessor.Property is not null)
+                EmissiveMultipleAccessor.Property.SetValue(lsp, value);
+            else
+                EmissiveMultipleAccessor.Field!.SetValue(lsp, value);
+        }
+
+        static readonly PropertyInfo? EmissiveColorProperty = typeof(BSLightingShaderProperty)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(p => p.CanWrite && p.Name.Replace("_", "").Equals("EmissiveColor", StringComparison.OrdinalIgnoreCase));
+
+        static readonly FieldInfo? EmissiveColorField = EmissiveColorProperty is null
+            ? typeof(BSLightingShaderProperty).GetField("_emissiveColor", BindingFlags.NonPublic | BindingFlags.Instance)
+            : null;
+
+        static Type EmissiveColorType =>
+            EmissiveColorProperty?.PropertyType ?? EmissiveColorField?.FieldType
+            ?? throw new InvalidOperationException(
+                "Couldn't find a public settable 'EmissiveColor' property, or a private '_emissiveColor' backing " +
+                "field, on BSLightingShaderProperty. Check the type in your IDE and update this lookup.");
+
+        static void SetEmissiveColor(BSLightingShaderProperty lsp, string hexColor)
+        {
+            Color color;
+            try
+            {
+                color = ColorTranslator.FromHtml(hexColor);
+            }
+            catch
+            {
+                color = Color.Black;
+            }
+
+            var colorValue = BuildColorValue(EmissiveColorType, color);
+
+            if (EmissiveColorProperty is not null)
+                EmissiveColorProperty.SetValue(lsp, colorValue);
+            else
+                EmissiveColorField!.SetValue(lsp, colorValue);
+        }
+
+        static object BuildColorValue(Type colorType, Color color)
+        {
+            float r = color.R / 255f, g = color.G / 255f, b = color.B / 255f;
+
+            // Most C# NIF color structs (Color3/Color4-style) take (float, float, float[, float]).
+            var ctor3 = colorType.GetConstructor(new[] { typeof(float), typeof(float), typeof(float) });
+            if (ctor3 is not null)
+                return ctor3.Invoke(new object[] { r, g, b });
+
+            var ctor4 = colorType.GetConstructor(new[] { typeof(float), typeof(float), typeof(float), typeof(float) });
+            if (ctor4 is not null)
+                return ctor4.Invoke(new object[] { r, g, b, 1f });
+
+            // Fall back to a parameterless constructor plus individually-set components.
+            var instance = Activator.CreateInstance(colorType)
+                ?? throw new InvalidOperationException($"Couldn't construct a default '{colorType.FullName}' for EmissiveColor.");
+
+            SetColorComponent(instance, colorType, r, "R", "X", "Red");
+            SetColorComponent(instance, colorType, g, "G", "Y", "Green");
+            SetColorComponent(instance, colorType, b, "B", "Z", "Blue");
+
+            return instance;
+        }
+
+        static void SetColorComponent(object instance, Type colorType, float value, params string[] candidateNames)
+        {
+            foreach (var name in candidateNames)
+            {
+                var property = colorType.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+                if (property is not null && property.CanWrite)
+                {
+                    property.SetValue(instance, value);
+                    return;
+                }
+
+                var field = colorType.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+                if (field is not null)
+                {
+                    field.SetValue(instance, value);
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"Couldn't find any of ({string.Join(", ", candidateNames)}) as a public settable member on " +
+                $"'{colorType.FullName}' to set an EmissiveColor component. Check the type in your IDE and update this lookup.");
+        }
+
         static void ApplySettings(NifFile nif, BSLightingShaderProperty lsp, Settings settings, Action<string> log)
         {
             // --- Shader floats ---
@@ -313,6 +438,8 @@ namespace MeshPatcherProject
             SetShaderFloat(lsp, "LightingEffect1", settings.Shader.LightingEffect1);
             SetShaderFloat(lsp, "LightingEffect2", settings.Shader.LightingEffect2);
             lsp.EnvironmentMapScale = settings.Shader.EnvironmentScale; // real public property, no workaround needed
+            SetEmissiveMultiple(lsp, settings.Shader.EmissiveMultiple);
+            SetEmissiveColor(lsp, settings.Shader.EmissiveColor);
 
             // --- Shader flags (replace wholesale from the preset) ---
             lsp.ShaderFlags_SSPF1 = ParseFlags1(settings.Flags1, log);
@@ -332,7 +459,7 @@ namespace MeshPatcherProject
                     SetSlotIfNotEmpty(textureSet, 5, settings.Textures.AO);
                     SetSlotIfNotEmpty(textureSet, 6, settings.Textures.Emissive);
                     SetSlotIfNotEmpty(textureSet, 7, settings.Textures.Roughness);
-                    SetSlotIfNotEmpty(textureSet, 8, settings.Textures.ID);
+                    // Slot 8 (ID) intentionally left untouched - never used.
                     // Transmissive: only present on newer (FO4+) texture sets - add if/when needed.
                 }
             }
